@@ -11,6 +11,12 @@ opts.shift
 
 class Hodor
 
+  DEFAULT_SSH_OPTIONS = [
+    "-o UserKnownHostsFile=/dev/null",
+    "-o StrictHostKeyChecking=no",
+    "-i ~/.ssh/id_boot2docker"
+  ]
+
   def initialize(opts, op)
     @os = get_os()
     @op = op
@@ -70,13 +76,13 @@ class Hodor
       end
 
       # Copy ssh info to allow ssh forwarding
-      `find ~/.ssh -maxdepth 1 -type f -not \\( -name *authorized_keys* -o -name *config* \\) -exec scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i ~/.ssh/id_boot2docker {} docker@#{@docker_host_ip}:~/.ssh \\\; 2>&1 `
+      `find ~/.ssh -maxdepth 1 -type f -not \\( -name *authorized_keys* -o -name *config* \\) -exec scp #{DEFAULT_SSH_OPTIONS} {} docker@#{@docker_host_ip}:~/.ssh \\\; 2>&1 `
 
       # Store ssh key in ssh-agent on VM
       # @TODO - get key name from user input
-      # and capture key pass in more secured way
       if File.exists? (File.join(File.expand_path('~'), ".ssh/id_rsa"))
-        system("ssh -t -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i ~/.ssh/id_boot2docker docker@#{@docker_host_ip} 'rm -f /tmp/docker_socket && eval `ssh-agent -a /tmp/docker_socket` && ssh-add'")
+        ssh_boot2docker('rm -f /tmp/docker_socket && eval `ssh-agent -a /tmp/docker_socket`')
+        ssh_boot2docker('ssh-add', ssh_options: '-t')
         if $?.exitstatus != 0
           abort("Your ssh key was not loaded correctly, try one more time.")
         end
@@ -172,7 +178,7 @@ class Hodor
     # Copying files to the VM
     puts "Synchronize #{@dir_path} with VM.."
     `unison -ignore "Name {.git,*.swp}" -batch -confirmbigdel=false -ui text -sshargs '-i ~/.ssh/id_boot2docker' #{@dir_path} socket://#{@docker_host_ip}:45678/#{sync_folder} 2>&1`
-    `ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -i ~/.ssh/id_boot2docker docker@#{@docker_host_ip} "sudo chown -R docker /data/#{@dir_path}" 2>&1`
+    `ssh #{DEFAULT_SSH_OPTIONS} docker@#{@docker_host_ip} "sudo chown -R docker /data/#{@dir_path}" 2>&1`
       
   end
 
@@ -305,6 +311,11 @@ class Hodor
         Process.kill("SIGTERM", @fswatch_pid)
       end
     end
+  end
+
+  def ssh_boot2docker(command, options = {})
+    ssh_options = default_ssh_options.push(options[:ssh_options]).compact.join(' ')
+    system("ssh #{ssh_options} docker@#{@docker_host_ip} '#{command}'")
   end
 
 end
